@@ -15,6 +15,7 @@ from classes.distributions import Distribution, get_distribution
 class STN:
     EVENT_START = "start"
     EVENT_FINISH = "finish"
+    TIME_POINT = "time point"
 
     @classmethod
     def from_production_plan(cls, production_plan):
@@ -22,18 +23,17 @@ class STN:
         for product in production_plan.products:
             for activity in product.activities:
                 # Add nodes that refer to start and end of activity
-                a_start = stn.add_node(product.product_index, activity.id, cls.EVENT_START)
-                a_finish = stn.add_node(product.product_index, activity.id, cls.EVENT_FINISH)
-                # Add edge between start and finish with processing time
-                stn.add_tight_constraint(a_start, a_finish, activity.processing_time[0])
+                a_id = (product.product_index, activity.id)
+                stn.add_activity(a_id)
+                stn.set_duration(a_id, activity.processing_time[0])
 
             # For every temporal relation in this product's temporal_relations, add edge between nodes with min and max lag
             for i, j in product.temporal_relations:
                 min_lag = product.temporal_relations[(i, j)].min_lag
                 max_lag = product.temporal_relations[(i, j)].max_lag
-                i_idx = stn.translation_dict_reversed[(product.product_index, i, cls.EVENT_START)]
-                j_idx = stn.translation_dict_reversed[(product.product_index, j, cls.EVENT_START)]
-                stn.add_interval_constraint(i_idx, j_idx, min_lag, max_lag)
+                i_id = (product.product_index, i)
+                j_id = (product.product_index, j)
+                stn.add_interval_constraint(i_id, j_id, min_lag, max_lag)
 
         return stn
 
@@ -79,14 +79,23 @@ class STN:
         self.translation_dict_reversed[description] = node_idx
         return node_idx
 
+    def add_activity(self, *description):
+        self.add_node(*description, self.EVENT_START)
+        self.add_node(*description, self.EVENT_FINISH)
+
+    def add_time_point(self, *description):
+        self.add_node(*description, self.TIME_POINT)
+
     def add_edge(self, node_from, node_to, distance):
         self.edges.append((node_from, node_to, distance))
 
-    def add_interval_constraint(self, node_from, node_to, min_distance, max_distance):
-        self.add_edge(node_from, node_to, max_distance)
+    def add_interval_constraint(self, node_from, node_to, min_distance, max_distance=None):
+        from_idx = self.translation_dict_reversed[(*node_from, self.EVENT_START)]
+        to_idx = self.translation_dict_reversed[(*node_to, self.EVENT_START)]
+        self.add_edge(from_idx, to_idx, max_distance or min_distance)
         self.add_edge(node_to, node_from, -min_distance)
 
-    def add_tight_constraint(self, node_from, node_to, distance):
+    def set_duration(self, node_from, node_to, distance):
         self.add_edge(node_from, node_to, distance)
         self.add_edge(node_to, node_from, -distance)
 
